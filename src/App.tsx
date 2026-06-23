@@ -66,6 +66,8 @@ export default function App() {
     skipPayment,
     togglePaymentPlan,
     updateInitialBalance,
+    exportBackup,
+    importBackup,
   } = useData();
 
   const [tab, setTab] = useState<Tab>("inicio");
@@ -90,9 +92,15 @@ export default function App() {
   const receivedIncome = income;
 
   const paidPayments = payments.filter((e) => e.status === "paid");
-  const pendingPayments = payments.filter(
+
+  const openPayments = payments.filter(
     (e) => e.status === "pending" || e.status === "postponed",
   );
+
+  // Regla oficial:
+  // "Por pagar" y "Pagos Pendientes" solo incluyen pagos marcados manualmente en el plan.
+  const pendingPayments = openPayments.filter((e) => Boolean(e.planned));
+
   const skippedPayments = payments.filter((e) => e.status === "skipped");
 
   const transferredSavings = savings.filter((e) => e.status === "paid");
@@ -151,6 +159,16 @@ export default function App() {
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [pendingPayments]);
 
+  const recurringPayments = useMemo(() => {
+    return [...openPayments]
+      .filter(
+        (entry) =>
+          (entry.recurring === "monthly" || Boolean(entry.isRecurring)) &&
+          !Boolean(entry.planned),
+      )
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [openPayments]);
+
   function money(value: number) {
     return `${settings.currencySymbol}${value.toFixed(2)}`;
   }
@@ -165,6 +183,23 @@ export default function App() {
 
     await updateInitialBalance(value);
     setInitialBalanceInput("");
+  }
+
+  async function handleImportBackup(file?: File) {
+    if (!file) return;
+
+    const confirmed = window.confirm(
+      "Esto reemplazará los datos actuales de Monney con el respaldo seleccionado. ¿Deseas continuar?",
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await importBackup(file);
+      alert("Respaldo importado correctamente.");
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "No se pudo importar el respaldo.");
+    }
   }
 
   function resetMovementForm() {
@@ -245,7 +280,9 @@ export default function App() {
           ? "paid"
           : "pending",
       recurring: isSavings ? "none" : isRecurring ? "monthly" : "none",
-      planned: existingEntry ? existingEntry.planned : false,
+      // Pago nuevo entra en el plan hasta que se pague realmente.
+      // Ingresos y ahorros no entran en plan.
+      planned: existingEntry ? existingEntry.planned : type === "payment",
     });
 
     resetMovementForm();
@@ -432,6 +469,9 @@ export default function App() {
               upcomingPayments={upcomingPayments}
               nextThirtyDays={nextThirtyDays}
               plannedPayments={plannedPayments}
+              recurringPayments={recurringPayments}
+              onTogglePlan={togglePaymentPlan}
+              getLastPaidAmount={getLastPaidAmount}
             />
           </>
         )}
@@ -440,10 +480,10 @@ export default function App() {
           <section>
             <h2 style={pageTitle}>Pagos</h2>
 
-            <div style={twoColumns}>
+            <div style={fourColumns}>
               <PaymentList
-                title="Por pagar"
-                entries={pendingPayments}
+                title="Pagos planificados"
+                entries={plannedPayments}
                 money={money}
                 color={orange}
                 onPaid={markPaymentPaid}
@@ -456,7 +496,19 @@ export default function App() {
               />
 
               <PaymentList
-                title="Pagado"
+                title="Pagos recurrentes"
+                entries={recurringPayments}
+                money={money}
+                color={blue}
+                onDelete={removeEntry}
+                onEdit={editMovement}
+                onTogglePlan={togglePaymentPlan}
+                getLastPaidAmount={getLastPaidAmount}
+                showPayButton={false}
+              />
+
+              <PaymentList
+                title="Pagados"
                 entries={paidPayments}
                 money={money}
                 color={green}
@@ -549,6 +601,35 @@ export default function App() {
               label="Ahorros aplicados"
               value={money(totals.totalSavingsTransferred)}
             />
+
+            <hr
+              style={{
+                border: 0,
+                borderTop: "1px solid #e5e7eb",
+                margin: "20px 0",
+              }}
+            />
+
+            <h2 style={title}>Respaldo de datos</h2>
+            <p style={{ color: "#64748b" }}>
+              Exporta un archivo JSON antes de hacer cambios grandes o cargar muchos pagos.
+            </p>
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button style={primaryButton} onClick={exportBackup}>
+                Exportar respaldo JSON
+              </button>
+
+              <label style={mutedButton}>
+                Importar respaldo JSON
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  style={{ display: "none" }}
+                  onChange={(event) => handleImportBackup(event.target.files?.[0])}
+                />
+              </label>
+            </div>
           </section>
         )}
       </main>
@@ -742,6 +823,7 @@ function PaymentList({
   onEdit,
   onTogglePlan,
   getLastPaidAmount,
+  showPayButton = true,
 }: any) {
   const [moreEntryId, setMoreEntryId] = useState<string | null>(null);
 
@@ -810,7 +892,7 @@ function PaymentList({
                   marginTop: 10,
                 }}
               >
-                {onPaid && e.status !== "paid" && (
+                {showPayButton && onPaid && e.status !== "paid" && (
                   <button style={primaryButton} onClick={() => onPaid(e)}>
                     Pagar
                   </button>
@@ -1140,6 +1222,12 @@ const formGrid: React.CSSProperties = {
 const twoColumns: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+  gap: 16,
+};
+
+const fourColumns: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
   gap: 16,
 };
 

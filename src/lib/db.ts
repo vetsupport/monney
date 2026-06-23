@@ -128,6 +128,44 @@ export async function deleteEntry(id: string): Promise<void> {
   await tx(STORE_ENTRIES, "readwrite", (s) => s.delete(id));
 }
 
+export async function clearEntries(): Promise<void> {
+  const db = await openDB();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORE_ENTRIES, "readwrite");
+    const request = transaction.objectStore(STORE_ENTRIES).clear();
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function replaceAllEntries(entries: Entry[]): Promise<void> {
+  const db = await openDB();
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORE_ENTRIES, "readwrite");
+    const store = transaction.objectStore(STORE_ENTRIES);
+
+    store.clear();
+
+    for (const entry of entries) {
+      store.put(entry);
+    }
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+export interface MonneyBackup {
+  app: "Monney";
+  version: string;
+  exportedAt: string;
+  settings: Settings;
+  entries: Entry[];
+}
+
 // ======================================================
 // SETTINGS
 // ======================================================

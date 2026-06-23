@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Entry,
   Settings,
+  clearEntries,
   deleteEntry,
   genId,
   getAllEntries,
   getSettings,
   saveEntry,
+  replaceAllEntries,
   saveSettings,
   todayISO,
 } from "../lib/db";
@@ -33,6 +35,8 @@ interface UseDataResult {
   updateCurrentBalance: (amount: number) => Promise<void>;
   updateInitialBalance: (amount: number) => Promise<void>;
   updateCurrency: (symbol: string) => Promise<void>;
+  exportBackup: () => Promise<void>;
+  importBackup: (file: File) => Promise<void>;
   reload: () => Promise<void>;
 }
 
@@ -250,6 +254,64 @@ export function useData(): UseDataResult {
     [settings],
   );
 
+
+  const exportBackup = useCallback(async () => {
+    const [allEntries, currentSettings] = await Promise.all([
+      getAllEntries(),
+      getSettings(),
+    ]);
+
+    const backup = {
+      app: "Monney",
+      version: "0.4.0",
+      exportedAt: new Date().toISOString(),
+      settings: currentSettings,
+      entries: allEntries,
+    };
+
+    const blob = new Blob([JSON.stringify(backup, null, 2)], {
+      type: "application/json",
+    });
+
+    const date = new Date().toISOString().slice(0, 10);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    link.href = url;
+    link.download = `monney-backup-${date}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const importBackup = useCallback(async (file: File) => {
+    const text = await file.text();
+    const backup = JSON.parse(text);
+
+    if (backup?.app !== "Monney") {
+      throw new Error("Este archivo no parece ser un respaldo válido de Monney.");
+    }
+
+    if (!Array.isArray(backup.entries)) {
+      throw new Error("El respaldo no contiene una lista válida de movimientos.");
+    }
+
+    if (!backup.settings) {
+      throw new Error("El respaldo no contiene configuración válida.");
+    }
+
+    await clearEntries();
+    await replaceAllEntries(backup.entries);
+    await saveSettings({
+      ...backup.settings,
+      id: "app-settings",
+      updatedAt: new Date().toISOString(),
+    });
+
+    await reload();
+  }, [reload]);
+
   return {
     entries,
     settings,
@@ -263,6 +325,8 @@ export function useData(): UseDataResult {
     updateCurrentBalance,
     updateInitialBalance,
     updateCurrency,
+    exportBackup,
+    importBackup,
     reload,
   };
 }
