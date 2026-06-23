@@ -16,49 +16,28 @@ interface UseDataResult {
   settings: Settings;
   loading: boolean;
 
-  saveEntryData: (
-    data: Partial<Entry> & { id?: string }
-  ) => Promise<Entry>;
-
+  saveEntryData: (data: Partial<Entry> & { id?: string }) => Promise<Entry>;
   removeEntry: (id: string) => Promise<void>;
-
   markPaymentPaid: (entry: Entry) => Promise<void>;
-
-  postponePayment: (
-    entry: Entry,
-    weeks: number
-  ) => Promise<void>;
-
+  postponePayment: (entry: Entry, weeks: number) => Promise<void>;
   skipPayment: (entry: Entry) => Promise<void>;
-
-  updateCurrentBalance: (
-    amount: number
-  ) => Promise<void>;
-
-  updateInitialBalance: (
-    amount: number
-  ) => Promise<void>;
-
-  updateCurrency: (
-    symbol: string
-  ) => Promise<void>;
-
+  updateCurrentBalance: (amount: number) => Promise<void>;
+  updateInitialBalance: (amount: number) => Promise<void>;
+  updateCurrency: (symbol: string) => Promise<void>;
   reload: () => Promise<void>;
 }
 
 export function useData(): UseDataResult {
   const [entries, setEntries] = useState<Entry[]>([]);
 
-  const [settings, setSettings] =
-    useState<Settings>({
-      id: 'app-settings',
-      initialBalance: 0,
-      currentBalance: 0,
-      currencySymbol: '$',
-    });
+  const [settings, setSettings] = useState<Settings>({
+    id: 'app-settings',
+    initialBalance: 0,
+    currentBalance: 0,
+    currencySymbol: '$',
+  });
 
-  const [loading, setLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
     const [all, s] = await Promise.all([
@@ -82,233 +61,154 @@ export function useData(): UseDataResult {
     })();
   }, [reload]);
 
-  const saveEntryData =
-    useCallback<
-      UseDataResult['saveEntryData']
-    >(
-      async (data) => {
-        const now =
-          new Date().toISOString();
+  const saveEntryData = useCallback<UseDataResult['saveEntryData']>(
+    async (data) => {
+      const now = new Date().toISOString();
+      let entry: Entry;
 
-        let entry: Entry;
+      if (data.id) {
+        const existing = entries.find((e) => e.id === data.id);
 
-        if (data.id) {
-          const existing =
-            entries.find(
-              (e) => e.id === data.id
-            );
+        if (!existing) throw new Error('No encontrado');
 
-          if (!existing)
-            throw new Error(
-              'No encontrado'
-            );
-
-          entry = {
-            ...existing,
-            ...data,
-            updatedAt: now,
-          } as Entry;
-        } else {
-          entry = {
-            id: genId(),
-
-            type:
-              data.type ?? 'expense',
-
-            description:
-              data.description ?? '',
-
-            amount:
-              data.amount ?? 0,
-
-            date:
-              data.date ??
-              todayISO(),
-
-            category:
-              data.category,
-
-            dueDay:
-              data.dueDay,
-
-            isRecurring:
-              data.isRecurring,
-
-            priority:
-              data.priority ??
-              'medium',
-
-            status:
-              data.status ??
-              'pending',
-
-            recurring:
-              data.recurring ??
-              'none',
-
-            createdAt: now,
-
-            updatedAt: now,
-          };
-        }
-
-        await saveEntry(entry);
-
-        await reload();
-
-        return entry;
-      },
-      [entries, reload]
-    );
-
-  const removeEntry =
-    useCallback(
-      async (id: string) => {
-        await deleteEntry(id);
-
-        await reload();
-      },
-      [reload]
-    );
-
-  const markPaymentPaid =
-    useCallback<
-      UseDataResult['markPaymentPaid']
-    >(
-      async (entry) => {
-        const updated: Entry = {
-          ...entry,
-          status: 'paid',
-          updatedAt:
-            new Date().toISOString(),
+        entry = {
+          ...existing,
+          ...data,
+          updatedAt: now,
+        } as Entry;
+      } else {
+        entry = {
+          id: genId(),
+          type: data.type ?? 'payment',
+          description: data.description ?? '',
+          amount: data.amount ?? 0,
+          date: data.date ?? todayISO(),
+          category: data.category,
+          dueDay: data.dueDay,
+          isRecurring: data.isRecurring ?? false,
+          priority: data.priority ?? 'medium',
+          status: data.status ?? 'pending',
+          recurring: data.recurring ?? 'none',
+          createdAt: now,
+          updatedAt: now,
         };
+      }
 
-        await saveEntry(updated);
+      await saveEntry(entry);
+      await reload();
+      return entry;
+    },
+    [entries, reload]
+  );
 
-        await reload();
-      },
-      [reload]
-    );
+  const removeEntry = useCallback(
+    async (id: string) => {
+      await deleteEntry(id);
+      await reload();
+    },
+    [reload]
+  );
 
-  const postponePayment =
-    useCallback<
-      UseDataResult['postponePayment']
-    >(
-      async (entry, weeks) => {
-        const current =
-          new Date(entry.date);
+  const markPaymentPaid = useCallback<UseDataResult['markPaymentPaid']>(
+    async (entry) => {
+      const updated: Entry = {
+        ...entry,
+        status: 'paid',
+        updatedAt: new Date().toISOString(),
+      };
 
-        current.setDate(
-          current.getDate() +
-            weeks * 7
-        );
+      await saveEntry(updated);
+      await reload();
+    },
+    [reload]
+  );
 
-        const updated: Entry = {
-          ...entry,
-          status: 'postponed',
-          date: current
-            .toISOString()
-            .slice(0, 10),
-          updatedAt:
-            new Date().toISOString(),
-        };
+  const postponePayment = useCallback<UseDataResult['postponePayment']>(
+    async (entry, weeks) => {
+      const current = new Date(entry.date);
+      current.setDate(current.getDate() + weeks * 7);
 
-        await saveEntry(updated);
+      const updated: Entry = {
+        ...entry,
+        status: 'postponed',
+        date: current.toISOString().slice(0, 10),
+        updatedAt: new Date().toISOString(),
+      };
 
-        await reload();
-      },
-      [reload]
-    );
+      await saveEntry(updated);
+      await reload();
+    },
+    [reload]
+  );
 
-  const skipPayment =
-    useCallback<
-      UseDataResult['skipPayment']
-    >(
-      async (entry) => {
-        const updated: Entry = {
-          ...entry,
-          status: 'skipped',
-          updatedAt:
-            new Date().toISOString(),
-        };
+  const skipPayment = useCallback<UseDataResult['skipPayment']>(
+    async (entry) => {
+      const updated: Entry = {
+        ...entry,
+        status: 'skipped',
+        updatedAt: new Date().toISOString(),
+      };
 
-        await saveEntry(updated);
+      await saveEntry(updated);
+      await reload();
+    },
+    [reload]
+  );
 
-        await reload();
-      },
-      [reload]
-    );
+  const updateCurrentBalance = useCallback(
+    async (amount: number) => {
+      const updated: Settings = {
+        ...settings,
+        currentBalance: amount,
+        updatedAt: new Date().toISOString(),
+      };
 
-  const updateCurrentBalance =
-    useCallback(
-      async (amount: number) => {
-        const updated: Settings = {
-          ...settings,
-          currentBalance: amount,
-          updatedAt:
-            new Date().toISOString(),
-        };
+      await saveSettings(updated);
+      setSettings(updated);
+    },
+    [settings]
+  );
 
-        await saveSettings(updated);
+  const updateInitialBalance = useCallback(
+    async (amount: number) => {
+      const updated: Settings = {
+        ...settings,
+        initialBalance: amount,
+        updatedAt: new Date().toISOString(),
+      };
 
-        setSettings(updated);
-      },
-      [settings]
-    );
+      await saveSettings(updated);
+      setSettings(updated);
+    },
+    [settings]
+  );
 
-  const updateInitialBalance =
-    useCallback(
-      async (amount: number) => {
-        const updated: Settings = {
-          ...settings,
-          initialBalance: amount,
-          updatedAt:
-            new Date().toISOString(),
-        };
+  const updateCurrency = useCallback(
+    async (symbol: string) => {
+      const updated: Settings = {
+        ...settings,
+        currencySymbol: symbol,
+        updatedAt: new Date().toISOString(),
+      };
 
-        await saveSettings(updated);
-
-        setSettings(updated);
-      },
-      [settings]
-    );
-
-  const updateCurrency =
-    useCallback(
-      async (symbol: string) => {
-        const updated: Settings = {
-          ...settings,
-          currencySymbol: symbol,
-        };
-
-        await saveSettings(updated);
-
-        setSettings(updated);
-      },
-      [settings]
-    );
+      await saveSettings(updated);
+      setSettings(updated);
+    },
+    [settings]
+  );
 
   return {
     entries,
     settings,
     loading,
-
     saveEntryData,
-
     removeEntry,
-
     markPaymentPaid,
-
     postponePayment,
-
     skipPayment,
-
     updateCurrentBalance,
-
     updateInitialBalance,
-
     updateCurrency,
-
     reload,
   };
 }

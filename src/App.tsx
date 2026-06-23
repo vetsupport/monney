@@ -11,6 +11,49 @@ const red = '#dc2626';
 const blue = '#2563eb';
 const purple = '#7c3aed';
 
+const categories = [
+  'Vivienda',
+  'Renta',
+  'Hipoteca',
+  'HOA',
+  'Vehículo',
+  'Pago vehículo',
+  'Gasolina',
+  'Mantenimiento',
+  'Peajes',
+  'Deudas',
+  'Tarjeta crédito',
+  'Loan',
+  'Student Loan',
+  'Servicios',
+  'Electricidad',
+  'Agua',
+  'Internet',
+  'Teléfono',
+  'Streaming',
+  'Alimentación',
+  'Supermercado',
+  'Restaurante',
+  'Seguros',
+  'Auto',
+  'Salud',
+  'Vida',
+  'Mascotas',
+  'Veterinario',
+  'Medicamentos',
+  'Comida',
+  'Familia',
+  'Colegio',
+  'Ropa',
+  'Entretenimiento',
+  'Ahorros',
+  'Savings',
+  'HYSA',
+  '401k',
+  'Brokerage',
+  'Otros',
+];
+
 export default function App() {
   const {
     entries,
@@ -25,15 +68,12 @@ export default function App() {
   } = useData();
 
   const [tab, setTab] = useState<Tab>('inicio');
-  const [showForm, setShowForm] = useState(false);
-
   const [type, setType] = useState<EntryType>('payment');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('Servicios');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(today());
   const [isRecurring, setIsRecurring] = useState(false);
-
   const [initialBalanceInput, setInitialBalanceInput] = useState('');
 
   const monthYear = new Date().toLocaleDateString('es-US', {
@@ -44,44 +84,32 @@ export default function App() {
   const income = entries.filter((e) => e.type === 'income');
   const payments = entries.filter((e) => e.type === 'payment');
   const savings = entries.filter((e) => e.type === 'savings');
-  const expenses = entries.filter((e) => e.type === 'expense');
-
-  const paidPayments = payments.filter((e) => e.status === 'paid');
-  const pendingPayments = payments.filter((e) => e.status === 'pending' || e.status === 'postponed');
-  const skippedPayments = payments.filter((e) => e.status === 'skipped');
 
   const paidIncome = income.filter((e) => e.status === 'paid');
   const pendingIncome = income.filter((e) => e.status === 'pending');
 
-  const transferredSavings = savings.filter((e) => e.status === 'paid');
-  const programmedSavings = savings.filter((e) => e.status === 'pending' || e.status === 'postponed');
+  const paidPayments = payments.filter((e) => e.status === 'paid');
+  const pendingPayments = payments.filter(
+    (e) => e.status === 'pending' || e.status === 'postponed'
+  );
+  const skippedPayments = payments.filter((e) => e.status === 'skipped');
 
-  const paidExpenses = expenses.filter((e) => e.status === 'paid');
+  const transferredSavings = savings.filter((e) => e.status === 'paid');
 
   const totals = useMemo(() => {
     const totalIncomeReceived = sum(paidIncome);
     const totalIncomePending = sum(pendingIncome);
-
     const totalPaidPayments = sum(paidPayments);
     const totalPendingPayments = sum(pendingPayments);
-
     const totalSavingsTransferred = sum(transferredSavings);
-    const totalSavingsProgrammed = sum(programmedSavings);
-
-    const totalExpenses = sum(paidExpenses);
 
     const currentBalance =
       settings.initialBalance +
       totalIncomeReceived -
       totalPaidPayments -
-      totalExpenses -
       totalSavingsTransferred;
 
-    const projectedBalance =
-      currentBalance +
-      totalIncomePending -
-      totalPendingPayments -
-      totalSavingsProgrammed;
+    const projectedBalance = currentBalance - totalPendingPayments;
 
     return {
       totalIncomeReceived,
@@ -89,17 +117,28 @@ export default function App() {
       totalPaidPayments,
       totalPendingPayments,
       totalSavingsTransferred,
-      totalSavingsProgrammed,
-      totalExpenses,
       currentBalance,
       projectedBalance,
     };
   }, [entries, settings.initialBalance]);
 
+  const dueToday = useMemo(() => {
+    return pendingPayments.filter((e) => e.date === today());
+  }, [pendingPayments]);
+
   const upcomingPayments = useMemo(() => {
     return [...pendingPayments]
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(0, 5);
+  }, [pendingPayments]);
+
+  const nextThirtyDays = useMemo(() => {
+    return [...pendingPayments]
+      .filter((entry) => {
+        const days = daysUntil(entry.date);
+        return days >= 0 && days <= 30;
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
   }, [pendingPayments]);
 
   function money(value: number) {
@@ -132,18 +171,20 @@ export default function App() {
     }
 
     const dueDay = Number(date.slice(-2));
+    const isSavings = type === 'savings';
+    const isIncome = type === 'income';
 
     await saveEntryData({
       type,
       description: description.trim(),
       amount: value,
       date,
-      category,
+      category: isSavings ? 'Ahorros' : category,
       dueDay,
-      isRecurring,
+      isRecurring: isSavings ? false : isRecurring,
       priority: 'medium',
-      status: type === 'payment' || type === 'savings' ? 'pending' : 'paid',
-      recurring: isRecurring ? 'monthly' : 'none',
+      status: isIncome || isSavings ? 'paid' : 'pending',
+      recurring: isSavings ? 'none' : isRecurring ? 'monthly' : 'none',
     });
 
     setDescription('');
@@ -151,7 +192,6 @@ export default function App() {
     setCategory('Servicios');
     setType('payment');
     setIsRecurring(false);
-    setShowForm(false);
   }
 
   if (loading) {
@@ -163,12 +203,12 @@ export default function App() {
       <header style={{ background: '#fff', borderBottom: '1px solid #e5e7eb', padding: '16px 20px' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <img src="/monney.jpg" alt="Monney" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} />
+            <Logo />
             <div>
               <h1 style={{ margin: 0, color: teal, fontSize: 38, fontWeight: 900 }}>
                 Mon<span style={{ color: green }}>ney</span>
               </h1>
-              <p style={{ margin: 0, color: '#64748b' }}>Planificador financiero familiar</p>
+              <p style={{ margin: 0, color: '#64748b' }}>Planificador financiero personal</p>
             </div>
           </div>
 
@@ -181,58 +221,61 @@ export default function App() {
       <main style={{ maxWidth: 1100, margin: '0 auto', padding: 20 }}>
         {tab === 'inicio' && (
           <>
-            <Hero onAdd={() => setShowForm(!showForm)} />
-
-            {showForm && (
-              <section style={{ ...card, marginTop: 16 }}>
-                <h2 style={title}>Agregar movimiento</h2>
-
-                <div style={formGrid}>
-                  <select style={input} value={type} onChange={(e) => setType(e.target.value as EntryType)}>
-                    <option value="payment">Pago</option>
-                    <option value="income">Ingreso</option>
-                    <option value="savings">Ahorro</option>
-                    <option value="expense">Gasto</option>
-                  </select>
-
-                  <input style={input} placeholder="Nombre / descripción" value={description} onChange={(e) => setDescription(e.target.value)} />
-
-                  <select style={input} value={category} onChange={(e) => setCategory(e.target.value)}>
-                    <option>Vehículo</option>
-                    <option>Renta</option>
-                    <option>Servicios</option>
-                    <option>Comida</option>
-                    <option>Imprevistos</option>
-                    <option>Salud</option>
-                    <option>Mascotas</option>
-                    <option>Familia</option>
-                    <option>Ahorros</option>
-                    <option>Otros</option>
-                  </select>
-
-                  <input style={input} type="number" placeholder="Monto" value={amount} onChange={(e) => setAmount(e.target.value)} />
-
-                  <input style={input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
-                    <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} />
-                    Recurrente
-                  </label>
-
-                  <button style={primaryButton} onClick={addMovement}>Guardar</button>
-                </div>
-              </section>
-            )}
-
-            <section style={{ ...card, marginTop: 16 }}>
-              <h2 style={title}>Saldo Inicial del mes</h2>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <input style={input} type="number" placeholder="Saldo inicial" value={initialBalanceInput} onChange={(e) => setInitialBalanceInput(e.target.value)} />
+            <section style={card}>
+              <h2 style={title}>Saldo Inicial</h2>
+              <div style={formGrid}>
+                <input style={input} type="number" placeholder="Saldo inicial del mes" value={initialBalanceInput} onChange={(e) => setInitialBalanceInput(e.target.value)} />
                 <button style={primaryButton} onClick={saveInitialBalance}>Guardar Saldo Inicial</button>
               </div>
             </section>
 
-            <SummaryCards money={money} settings={settings} totals={totals} upcomingPayments={upcomingPayments} />
+            <section style={{ ...card, marginTop: 16 }}>
+              <h2 style={title}>Gastos</h2>
+              <p style={{ marginTop: -8, color: '#64748b' }}>
+                Registra pagos, ingresos o aplica un ahorro transferido.
+              </p>
+
+              <div style={formGrid}>
+                <select style={input} value={type} onChange={(e) => {
+                  const nextType = e.target.value as EntryType;
+                  setType(nextType);
+                  if (nextType === 'savings') setCategory('Ahorros');
+                  if (nextType === 'income') setCategory('Otros');
+                  if (nextType === 'payment') setCategory('Servicios');
+                }}>
+                  <option value="payment">Pago</option>
+                  <option value="income">Ingreso</option>
+                  <option value="savings">Ahorro</option>
+                </select>
+
+                <input style={input} placeholder="Nombre / descripción" value={description} onChange={(e) => setDescription(e.target.value)} />
+
+                {type !== 'savings' && (
+                  <select style={input} value={category} onChange={(e) => setCategory(e.target.value)}>
+                    {categories.map((item) => (
+                      <option key={item}>{item}</option>
+                    ))}
+                  </select>
+                )}
+
+                <input style={input} type="number" placeholder="Monto" value={amount} onChange={(e) => setAmount(e.target.value)} />
+
+                <input style={input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+
+                {type === 'payment' && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700 }}>
+                    <input type="checkbox" checked={isRecurring} onChange={(e) => setIsRecurring(e.target.checked)} />
+                    Recurrente
+                  </label>
+                )}
+
+                <button style={primaryButton} onClick={addMovement}>
+                  {type === 'savings' ? 'Aplicar' : 'Guardar'}
+                </button>
+              </div>
+            </section>
+
+            <SummaryCards money={money} settings={settings} totals={totals} dueToday={dueToday} upcomingPayments={upcomingPayments} nextThirtyDays={nextThirtyDays} />
           </>
         )}
 
@@ -281,7 +324,7 @@ export default function App() {
         {tab === 'ahorros' && (
           <section>
             <h2 style={pageTitle}>Ahorros</h2>
-            <GenericList title="Ahorros registrados" entries={savings} money={money} color={purple} onDelete={removeEntry} />
+            <GenericList title="Ahorros aplicados" entries={savings} money={money} color={purple} onDelete={removeEntry} />
           </section>
         )}
 
@@ -291,17 +334,16 @@ export default function App() {
 
             <SummaryRow label="Saldo Inicial" value={money(settings.initialBalance)} />
             <SummaryRow label="Saldo Actual" value={money(totals.currentBalance)} />
+            <SummaryRow label="Pagos Pendientes" value={money(totals.totalPendingPayments)} />
             <SummaryRow label="Saldo Proyectado" value={money(totals.projectedBalance)} />
 
             <hr style={{ border: 0, borderTop: '1px solid #e5e7eb', margin: '16px 0' }} />
 
             <SummaryRow label="Ingresos recibidos" value={money(totals.totalIncomeReceived)} />
-            <SummaryRow label="Ingresos pendientes" value={money(totals.totalIncomePending)} />
+            <SummaryRow label="Ingresos futuros registrados" value={money(totals.totalIncomePending)} />
             <SummaryRow label="Pagos realizados" value={money(totals.totalPaidPayments)} />
             <SummaryRow label="Pagos pendientes" value={money(totals.totalPendingPayments)} />
-            <SummaryRow label="Ahorros transferidos" value={money(totals.totalSavingsTransferred)} />
-            <SummaryRow label="Ahorros programados" value={money(totals.totalSavingsProgrammed)} />
-            <SummaryRow label="Gastos" value={money(totals.totalExpenses)} />
+            <SummaryRow label="Ahorros aplicados" value={money(totals.totalSavingsTransferred)} />
           </section>
         )}
       </main>
@@ -311,43 +353,63 @@ export default function App() {
   );
 }
 
-function Hero({ onAdd }: { onAdd: () => void }) {
+function Logo() {
   return (
-    <section style={{ ...card, background: 'linear-gradient(135deg, #ecfdf5, #ffffff)', border: '1px solid #ccfbf1' }}>
-      <h2 style={{ marginTop: 0, color: teal, fontSize: 30 }}>¡Bienvenido a Monney!</h2>
-      <p style={{ color: '#475569', fontSize: 18 }}>Organiza ingresos, pagos y ahorros del hogar.</p>
-      <button style={primaryButton} onClick={onAdd}>+ Agregar movimiento</button>
-    </section>
+    <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'linear-gradient(135deg, #0f766e, #65a30d)', display: 'grid', placeItems: 'center', color: 'white', fontSize: 34, fontWeight: 900, boxShadow: '0 8px 18px rgba(15,118,110,0.25)' }}>
+      $
+    </div>
   );
 }
 
-function SummaryCards({ money, settings, totals, upcomingPayments }: any) {
+function SummaryCards({ money, settings, totals, dueToday, upcomingPayments, nextThirtyDays }: any) {
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14, marginTop: 16 }}>
         <Metric title="Saldo Inicial" value={money(settings.initialBalance)} color={blue} />
         <Metric title="Saldo Actual" value={money(totals.currentBalance)} color={green} />
+        <Metric title="Pagos Pendientes" value={money(totals.totalPendingPayments)} color={orange} />
         <Metric title="Saldo Proyectado" value={money(totals.projectedBalance)} color={totals.projectedBalance < 0 ? red : teal} />
-        <Metric title="Próximos Pagos" value={String(upcomingPayments.length)} color={orange} />
       </div>
 
       <section style={{ ...card, marginTop: 16 }}>
-        <h2 style={title}>Próximos Pagos</h2>
+        <h2 style={title}>Vence Hoy</h2>
+        {dueToday.length === 0 ? (
+          <p style={{ color: '#94a3b8' }}>No hay pagos que vencen hoy.</p>
+        ) : (
+          dueToday.map((e: Entry) => <PaymentPreview key={e.id} entry={e} money={money} />)
+        )}
+      </section>
 
+      <section style={{ ...card, marginTop: 16 }}>
+        <h2 style={title}>Próximos Pagos</h2>
         {upcomingPayments.length === 0 ? (
           <p style={{ color: '#94a3b8' }}>No hay pagos pendientes.</p>
         ) : (
-          upcomingPayments.map((e: Entry) => (
-            <div key={e.id} style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12, marginBottom: 10, borderLeft: `6px solid ${paymentColor(e)}` }}>
-              <strong>{e.description}</strong>
-              <div>{money(e.amount)}</div>
-              <div>{e.category || 'Sin categoría'} — {e.date}</div>
-              <div style={{ color: paymentColor(e), fontWeight: 800 }}>{paymentLabel(e)}</div>
-            </div>
-          ))
+          upcomingPayments.map((e: Entry) => <PaymentPreview key={e.id} entry={e} money={money} />)
+        )}
+      </section>
+
+      <section style={{ ...card, marginTop: 16 }}>
+        <h2 style={title}>Próximos 30 días</h2>
+        <SummaryRow label="Monto comprometido" value={money(sum(nextThirtyDays))} />
+        {nextThirtyDays.length === 0 ? (
+          <p style={{ color: '#94a3b8' }}>No hay pagos en los próximos 30 días.</p>
+        ) : (
+          nextThirtyDays.map((e: Entry) => <PaymentPreview key={e.id} entry={e} money={money} />)
         )}
       </section>
     </>
+  );
+}
+
+function PaymentPreview({ entry, money }: { entry: Entry; money: (value: number) => string }) {
+  return (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 12, padding: 12, marginBottom: 10, borderLeft: `6px solid ${paymentColor(entry)}` }}>
+      <strong>{entry.description}</strong>
+      <div>{money(entry.amount)}</div>
+      <div>{entry.category || 'Sin categoría'} — {entry.date}</div>
+      <div style={{ color: paymentColor(entry), fontWeight: 800 }}>{paymentLabel(entry)}</div>
+    </div>
   );
 }
 
@@ -427,7 +489,7 @@ function GenericList({ title, entries, money, color, onDelete }: any) {
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
       <span style={{ color: '#475569' }}>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -473,7 +535,8 @@ function sum(entries: Entry[]) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
 
 function daysUntil(date: string) {
@@ -562,8 +625,9 @@ const secondaryButton: React.CSSProperties = {
 
 const formGrid: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
   gap: 10,
+  alignItems: 'stretch',
 };
 
 const twoColumns: React.CSSProperties = {

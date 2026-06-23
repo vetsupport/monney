@@ -1,4 +1,4 @@
-export type EntryType = 'income' | 'payment' | 'expense' | 'savings';
+export type EntryType = 'income' | 'payment' | 'savings';
 
 export type PaymentStatus =
   | 'pending'
@@ -6,46 +6,34 @@ export type PaymentStatus =
   | 'postponed'
   | 'skipped';
 
+export type RecurringType = 'none' | 'monthly';
+
 export interface Entry {
   id: string;
-
   type: EntryType;
-
   description: string;
   amount: number;
-
   date: string;
-
   category?: string;
-
   dueDay?: number;
-
   isRecurring?: boolean;
-
   priority?: 'high' | 'medium' | 'low';
-
   status: PaymentStatus;
-
-  recurring?: 'none' | 'monthly';
-
+  recurring?: RecurringType;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface Settings {
   id: string;
-
   initialBalance: number;
-
   currentBalance: number;
-
   currencySymbol: string;
-
   updatedAt?: string;
 }
 
 const DB_NAME = 'cashflow-db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORE_ENTRIES = 'entries';
 const STORE_SETTINGS = 'settings';
@@ -68,17 +56,9 @@ function openDB(): Promise<IDBDatabase> {
           keyPath: 'id',
         });
 
-        store.createIndex('type', 'type', {
-          unique: false,
-        });
-
-        store.createIndex('status', 'status', {
-          unique: false,
-        });
-
-        store.createIndex('date', 'date', {
-          unique: false,
-        });
+        store.createIndex('type', 'type', { unique: false });
+        store.createIndex('status', 'status', { unique: false });
+        store.createIndex('date', 'date', { unique: false });
       }
 
       if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
@@ -89,7 +69,6 @@ function openDB(): Promise<IDBDatabase> {
     };
 
     req.onsuccess = () => resolve(req.result);
-
     req.onerror = () => reject(req.error);
   });
 
@@ -105,11 +84,9 @@ function tx<T>(
     (db) =>
       new Promise<T>((resolve, reject) => {
         const t = db.transaction(store, mode);
-
         const req = fn(t.objectStore(store));
 
         req.onsuccess = () => resolve(req.result);
-
         req.onerror = () => reject(req.error);
       })
   );
@@ -133,15 +110,17 @@ export async function getAllEntries(): Promise<Entry[]> {
     (s) => s.getAll()
   );
 
-  return (entries || []).sort((a, b) =>
-    a.date < b.date
-      ? 1
-      : a.date > b.date
-      ? -1
-      : a.createdAt < b.createdAt
-      ? 1
-      : -1
-  );
+  return (entries || [])
+    .filter((entry) => entry.type !== ('expense' as EntryType))
+    .sort((a, b) =>
+      a.date < b.date
+        ? 1
+        : a.date > b.date
+        ? -1
+        : a.createdAt < b.createdAt
+        ? 1
+        : -1
+    );
 }
 
 export async function getEntry(
@@ -154,20 +133,12 @@ export async function getEntry(
   );
 }
 
-export async function saveEntry(
-  entry: Entry
-): Promise<void> {
-  await tx(STORE_ENTRIES, 'readwrite', (s) =>
-    s.put(entry)
-  );
+export async function saveEntry(entry: Entry): Promise<void> {
+  await tx(STORE_ENTRIES, 'readwrite', (s) => s.put(entry));
 }
 
-export async function deleteEntry(
-  id: string
-): Promise<void> {
-  await tx(STORE_ENTRIES, 'readwrite', (s) =>
-    s.delete(id)
-  );
+export async function deleteEntry(id: string): Promise<void> {
+  await tx(STORE_ENTRIES, 'readwrite', (s) => s.delete(id));
 }
 
 // ======================================================
@@ -183,44 +154,32 @@ export async function getSettings(): Promise<Settings> {
 
   if (settings) {
     return {
+      id: SETTINGS_ID,
       initialBalance:
         settings.initialBalance ??
         settings.currentBalance ??
         0,
-
-      currentBalance:
-        settings.currentBalance ?? 0,
-
-      currencySymbol:
-        settings.currencySymbol ?? '$',
-
-      id: SETTINGS_ID,
-
+      currentBalance: settings.currentBalance ?? 0,
+      currencySymbol: settings.currencySymbol ?? '$',
       updatedAt: settings.updatedAt,
     };
   }
 
   const initial: Settings = {
     id: SETTINGS_ID,
-
     initialBalance: 0,
-
     currentBalance: 0,
-
     currencySymbol: '$',
   };
 
   await saveSettings(initial);
-
   return initial;
 }
 
 export async function saveSettings(
   settings: Settings
 ): Promise<void> {
-  await tx(STORE_SETTINGS, 'readwrite', (s) =>
-    s.put(settings)
-  );
+  await tx(STORE_SETTINGS, 'readwrite', (s) => s.put(settings));
 }
 
 // ======================================================
