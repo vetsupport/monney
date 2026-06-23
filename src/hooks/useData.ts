@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from "react";
 import {
   Entry,
   Settings,
@@ -9,7 +9,15 @@ import {
   saveEntry,
   saveSettings,
   todayISO,
-} from '../lib/db';
+} from "../lib/db";
+
+function addMonthsISO(date: string, months: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const target = new Date(year, month - 1 + months, day);
+  return new Date(target.getTime() - target.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 10);
+}
 
 interface UseDataResult {
   entries: Entry[];
@@ -21,6 +29,7 @@ interface UseDataResult {
   markPaymentPaid: (entry: Entry) => Promise<void>;
   postponePayment: (entry: Entry, weeks: number) => Promise<void>;
   skipPayment: (entry: Entry) => Promise<void>;
+  togglePaymentPlan: (entry: Entry) => Promise<void>;
   updateCurrentBalance: (amount: number) => Promise<void>;
   updateInitialBalance: (amount: number) => Promise<void>;
   updateCurrency: (symbol: string) => Promise<void>;
@@ -31,19 +40,16 @@ export function useData(): UseDataResult {
   const [entries, setEntries] = useState<Entry[]>([]);
 
   const [settings, setSettings] = useState<Settings>({
-    id: 'app-settings',
+    id: "app-settings",
     initialBalance: 0,
     currentBalance: 0,
-    currencySymbol: '$',
+    currencySymbol: "$",
   });
 
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
-    const [all, s] = await Promise.all([
-      getAllEntries(),
-      getSettings(),
-    ]);
+    const [all, s] = await Promise.all([getAllEntries(), getSettings()]);
 
     setEntries(all);
     setSettings(s);
@@ -61,7 +67,7 @@ export function useData(): UseDataResult {
     })();
   }, [reload]);
 
-  const saveEntryData = useCallback<UseDataResult['saveEntryData']>(
+  const saveEntryData = useCallback<UseDataResult["saveEntryData"]>(
     async (data) => {
       const now = new Date().toISOString();
       let entry: Entry;
@@ -69,7 +75,7 @@ export function useData(): UseDataResult {
       if (data.id) {
         const existing = entries.find((e) => e.id === data.id);
 
-        if (!existing) throw new Error('No encontrado');
+        if (!existing) throw new Error("No encontrado");
 
         entry = {
           ...existing,
@@ -79,16 +85,18 @@ export function useData(): UseDataResult {
       } else {
         entry = {
           id: genId(),
-          type: data.type ?? 'payment',
-          description: data.description ?? '',
+          type: data.type ?? "payment",
+          description: data.description ?? "",
           amount: data.amount ?? 0,
           date: data.date ?? todayISO(),
           category: data.category,
           dueDay: data.dueDay,
           isRecurring: data.isRecurring ?? false,
-          priority: data.priority ?? 'medium',
-          status: data.status ?? 'pending',
-          recurring: data.recurring ?? 'none',
+          priority: data.priority ?? "medium",
+          status: data.status ?? "pending",
+          recurring: data.recurring ?? "none",
+          planned: data.planned ?? false,
+          lastPaidAmount: data.lastPaidAmount,
           createdAt: now,
           updatedAt: now,
         };
@@ -98,7 +106,7 @@ export function useData(): UseDataResult {
       await reload();
       return entry;
     },
-    [entries, reload]
+    [entries, reload],
   );
 
   const removeEntry = useCallback(
@@ -106,31 +114,62 @@ export function useData(): UseDataResult {
       await deleteEntry(id);
       await reload();
     },
-    [reload]
+    [reload],
   );
 
-  const markPaymentPaid = useCallback<UseDataResult['markPaymentPaid']>(
+  const markPaymentPaid = useCallback<UseDataResult["markPaymentPaid"]>(
     async (entry) => {
+      const now = new Date().toISOString();
       const updated: Entry = {
         ...entry,
-        status: 'paid',
-        updatedAt: new Date().toISOString(),
+        status: "paid",
+        updatedAt: now,
       };
 
       await saveEntry(updated);
+
+      if (entry.recurring === "monthly" || entry.isRecurring) {
+        const nextDate = addMonthsISO(entry.date, 1);
+        const nextMonth = nextDate.slice(0, 7);
+        const alreadyExists = entries.some(
+          (item) =>
+            item.id !== entry.id &&
+            item.type === "payment" &&
+            item.status !== "paid" &&
+            item.description.trim().toLowerCase() ===
+              entry.description.trim().toLowerCase() &&
+            item.date.slice(0, 7) === nextMonth,
+        );
+
+        if (!alreadyExists) {
+          const nextEntry: Entry = {
+            ...entry,
+            id: genId(),
+            status: "pending",
+            date: nextDate,
+            planned: false,
+            lastPaidAmount: entry.amount,
+            createdAt: now,
+            updatedAt: now,
+          };
+
+          await saveEntry(nextEntry);
+        }
+      }
+
       await reload();
     },
-    [reload]
+    [entries, reload],
   );
 
-  const postponePayment = useCallback<UseDataResult['postponePayment']>(
+  const postponePayment = useCallback<UseDataResult["postponePayment"]>(
     async (entry, weeks) => {
       const current = new Date(entry.date);
       current.setDate(current.getDate() + weeks * 7);
 
       const updated: Entry = {
         ...entry,
-        status: 'postponed',
+        status: "postponed",
         date: current.toISOString().slice(0, 10),
         updatedAt: new Date().toISOString(),
       };
@@ -138,21 +177,35 @@ export function useData(): UseDataResult {
       await saveEntry(updated);
       await reload();
     },
-    [reload]
+    [reload],
   );
 
-  const skipPayment = useCallback<UseDataResult['skipPayment']>(
+  const skipPayment = useCallback<UseDataResult["skipPayment"]>(
     async (entry) => {
       const updated: Entry = {
         ...entry,
-        status: 'skipped',
+        status: "skipped",
         updatedAt: new Date().toISOString(),
       };
 
       await saveEntry(updated);
       await reload();
     },
-    [reload]
+    [reload],
+  );
+
+  const togglePaymentPlan = useCallback(
+    async (entry: Entry) => {
+      const updated: Entry = {
+        ...entry,
+        planned: !Boolean(entry.planned),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await saveEntry(updated);
+      await reload();
+    },
+    [reload],
   );
 
   const updateCurrentBalance = useCallback(
@@ -166,7 +219,7 @@ export function useData(): UseDataResult {
       await saveSettings(updated);
       setSettings(updated);
     },
-    [settings]
+    [settings],
   );
 
   const updateInitialBalance = useCallback(
@@ -180,7 +233,7 @@ export function useData(): UseDataResult {
       await saveSettings(updated);
       setSettings(updated);
     },
-    [settings]
+    [settings],
   );
 
   const updateCurrency = useCallback(
@@ -194,7 +247,7 @@ export function useData(): UseDataResult {
       await saveSettings(updated);
       setSettings(updated);
     },
-    [settings]
+    [settings],
   );
 
   return {
@@ -206,6 +259,7 @@ export function useData(): UseDataResult {
     markPaymentPaid,
     postponePayment,
     skipPayment,
+    togglePaymentPlan,
     updateCurrentBalance,
     updateInitialBalance,
     updateCurrency,

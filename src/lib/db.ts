@@ -1,12 +1,8 @@
-export type EntryType = 'income' | 'payment' | 'savings';
+export type EntryType = "income" | "payment" | "savings";
 
-export type PaymentStatus =
-  | 'pending'
-  | 'paid'
-  | 'postponed'
-  | 'skipped';
+export type PaymentStatus = "pending" | "paid" | "postponed" | "skipped";
 
-export type RecurringType = 'none' | 'monthly';
+export type RecurringType = "none" | "monthly";
 
 export interface Entry {
   id: string;
@@ -17,9 +13,11 @@ export interface Entry {
   category?: string;
   dueDay?: number;
   isRecurring?: boolean;
-  priority?: 'high' | 'medium' | 'low';
+  priority?: "high" | "medium" | "low";
   status: PaymentStatus;
   recurring?: RecurringType;
+  planned?: boolean;
+  lastPaidAmount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -32,13 +30,13 @@ export interface Settings {
   updatedAt?: string;
 }
 
-const DB_NAME = 'cashflow-db';
+const DB_NAME = "cashflow-db";
 const DB_VERSION = 3;
 
-const STORE_ENTRIES = 'entries';
-const STORE_SETTINGS = 'settings';
+const STORE_ENTRIES = "entries";
+const STORE_SETTINGS = "settings";
 
-const SETTINGS_ID = 'app-settings';
+const SETTINGS_ID = "app-settings";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -53,17 +51,17 @@ function openDB(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains(STORE_ENTRIES)) {
         const store = db.createObjectStore(STORE_ENTRIES, {
-          keyPath: 'id',
+          keyPath: "id",
         });
 
-        store.createIndex('type', 'type', { unique: false });
-        store.createIndex('status', 'status', { unique: false });
-        store.createIndex('date', 'date', { unique: false });
+        store.createIndex("type", "type", { unique: false });
+        store.createIndex("status", "status", { unique: false });
+        store.createIndex("date", "date", { unique: false });
       }
 
       if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
         db.createObjectStore(STORE_SETTINGS, {
-          keyPath: 'id',
+          keyPath: "id",
         });
       }
     };
@@ -78,7 +76,7 @@ function openDB(): Promise<IDBDatabase> {
 function tx<T>(
   store: string,
   mode: IDBTransactionMode,
-  fn: (s: IDBObjectStore) => IDBRequest<T>
+  fn: (s: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
   return openDB().then(
     (db) =>
@@ -88,15 +86,12 @@ function tx<T>(
 
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
-      })
+      }),
   );
 }
 
 export function genId(): string {
-  return (
-    Date.now().toString(36) +
-    Math.random().toString(36).slice(2, 8)
-  );
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
 // ======================================================
@@ -104,41 +99,33 @@ export function genId(): string {
 // ======================================================
 
 export async function getAllEntries(): Promise<Entry[]> {
-  const entries = await tx<Entry[]>(
-    STORE_ENTRIES,
-    'readonly',
-    (s) => s.getAll()
+  const entries = await tx<Entry[]>(STORE_ENTRIES, "readonly", (s) =>
+    s.getAll(),
   );
 
   return (entries || [])
-    .filter((entry) => entry.type !== ('expense' as EntryType))
+    .filter((entry) => entry.type !== ("expense" as EntryType))
     .sort((a, b) =>
       a.date < b.date
         ? 1
         : a.date > b.date
-        ? -1
-        : a.createdAt < b.createdAt
-        ? 1
-        : -1
+          ? -1
+          : a.createdAt < b.createdAt
+            ? 1
+            : -1,
     );
 }
 
-export async function getEntry(
-  id: string
-): Promise<Entry | undefined> {
-  return tx<Entry | undefined>(
-    STORE_ENTRIES,
-    'readonly',
-    (s) => s.get(id)
-  );
+export async function getEntry(id: string): Promise<Entry | undefined> {
+  return tx<Entry | undefined>(STORE_ENTRIES, "readonly", (s) => s.get(id));
 }
 
 export async function saveEntry(entry: Entry): Promise<void> {
-  await tx(STORE_ENTRIES, 'readwrite', (s) => s.put(entry));
+  await tx(STORE_ENTRIES, "readwrite", (s) => s.put(entry));
 }
 
 export async function deleteEntry(id: string): Promise<void> {
-  await tx(STORE_ENTRIES, 'readwrite', (s) => s.delete(id));
+  await tx(STORE_ENTRIES, "readwrite", (s) => s.delete(id));
 }
 
 // ======================================================
@@ -148,19 +135,16 @@ export async function deleteEntry(id: string): Promise<void> {
 export async function getSettings(): Promise<Settings> {
   const settings = await tx<Settings | undefined>(
     STORE_SETTINGS,
-    'readonly',
-    (s) => s.get(SETTINGS_ID)
+    "readonly",
+    (s) => s.get(SETTINGS_ID),
   );
 
   if (settings) {
     return {
       id: SETTINGS_ID,
-      initialBalance:
-        settings.initialBalance ??
-        settings.currentBalance ??
-        0,
+      initialBalance: settings.initialBalance ?? settings.currentBalance ?? 0,
       currentBalance: settings.currentBalance ?? 0,
-      currencySymbol: settings.currencySymbol ?? '$',
+      currencySymbol: settings.currencySymbol ?? "$",
       updatedAt: settings.updatedAt,
     };
   }
@@ -169,17 +153,15 @@ export async function getSettings(): Promise<Settings> {
     id: SETTINGS_ID,
     initialBalance: 0,
     currentBalance: 0,
-    currencySymbol: '$',
+    currencySymbol: "$",
   };
 
   await saveSettings(initial);
   return initial;
 }
 
-export async function saveSettings(
-  settings: Settings
-): Promise<void> {
-  await tx(STORE_SETTINGS, 'readwrite', (s) => s.put(settings));
+export async function saveSettings(settings: Settings): Promise<void> {
+  await tx(STORE_SETTINGS, "readwrite", (s) => s.put(settings));
 }
 
 // ======================================================
@@ -189,9 +171,7 @@ export async function saveSettings(
 export function todayISO(): string {
   const d = new Date();
 
-  return new Date(
-    d.getTime() - d.getTimezoneOffset() * 60000
-  )
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 10);
 }
