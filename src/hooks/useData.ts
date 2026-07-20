@@ -132,6 +132,17 @@ export function useData(): UseDataResult {
 
       await saveEntry(updated);
 
+      if (entry.status !== "paid") {
+        const updatedSettings: Settings = {
+          ...settings,
+          currentBalance: settings.currentBalance - entry.amount,
+          updatedAt: now,
+        };
+
+        await saveSettings(updatedSettings);
+        setSettings(updatedSettings);
+      }
+
       if (entry.recurring === "monthly" || entry.isRecurring) {
         const nextDate = addMonthsISO(entry.date, 1);
         const nextMonth = nextDate.slice(0, 7);
@@ -163,7 +174,7 @@ export function useData(): UseDataResult {
 
       await reload();
     },
-    [entries, reload],
+    [entries, reload, settings],
   );
 
   const postponePayment = useCallback<UseDataResult["postponePayment"]>(
